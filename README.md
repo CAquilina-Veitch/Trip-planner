@@ -57,6 +57,27 @@ npm run dev
 
 4. Open your browser to `http://localhost:5173`
 
+## Deployment to GitHub Pages
+
+This project is configured to automatically deploy to GitHub Pages.
+
+### Live Demo
+
+Visit: **https://caquilina-veitch.github.io/Trip-planner/**
+
+### Automatic Deployment
+
+The app automatically deploys when you push to the `main` or `master` branch using GitHub Actions.
+
+### Manual Setup (One-time)
+
+1. Go to your repository settings on GitHub
+2. Navigate to **Pages** (under "Code and automation")
+3. Under **Source**, select "GitHub Actions"
+4. Push to `main` or `master` branch to trigger deployment
+
+That's it! Your trip planner will be live at the URL above.
+
 ## Usage
 
 ### Adding Stops
