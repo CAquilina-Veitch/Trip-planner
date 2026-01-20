@@ -66,6 +66,7 @@ function App() {
           days={trip.days}
           selectedDayId={selectedDayId}
           isAddingStop={isAddingStop}
+          tripId={trip.id}
           onStopDrag={handleStopDrag}
           onMapClick={handleMapClick}
           onRouteCalculated={handleRouteCalculated}
