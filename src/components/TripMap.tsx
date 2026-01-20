@@ -4,9 +4,7 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import type { Day, Location, RouteSegment, DayStats } from '../types/trip';
 import { reverseGeocode } from '../services/photonApi';
-
-// Helper for retry delay
-const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+import { routeQueue } from '../services/routeQueue';
 
 interface TripMapProps {
   days: Day[];
@@ -103,7 +101,6 @@ function DayRoute({
 }) {
   const map = useMap();
   const routeRef = useRef<L.Polyline[]>([]);
-  const fetchingRef = useRef(false);
 
   const calculateRoute = useCallback(async () => {
     // Include inherited start in route calculation
@@ -111,11 +108,9 @@ function DayRoute({
       ? [{ location: inheritedStart }, ...day.stops]
       : day.stops;
 
-    if (routeStops.length < 2 || fetchingRef.current) return;
+    if (routeStops.length < 2) return;
 
-    fetchingRef.current = true;
-
-    // Clean up old routes
+    // Clean up old routes immediately
     routeRef.current.forEach(line => map.removeLayer(line));
     routeRef.current = [];
 
@@ -124,123 +119,110 @@ function DayRoute({
       .map(stop => `${stop.location.lng},${stop.location.lat}`)
       .join(';');
 
-    // Retry logic with exponential backoff
-    const MAX_RETRIES = 3;
-    let lastError: Error | null = null;
+    // Use queue to rate-limit requests
+    await routeQueue.enqueue(day.id, async () => {
+      const response = await fetch(
+        `https://router.project-osrm.org/route/v1/driving/${coords}?overview=full&geometries=geojson&steps=true`
+      );
 
-    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
-      try {
-        if (attempt > 0) {
-          await delay(500 * Math.pow(2, attempt - 1)); // 500ms, 1000ms backoff
-        }
+      if (response.status === 429) {
+        throw new Error('429 Rate limited');
+      }
 
-        const response = await fetch(
-          `https://router.project-osrm.org/route/v1/driving/${coords}?overview=full&geometries=geojson&steps=true`
-        );
+      if (!response.ok) throw new Error('Route calculation failed');
 
-        if (!response.ok) throw new Error('Route calculation failed');
+      const data = await response.json();
 
-        const data = await response.json();
+      if (data.code !== 'Ok' || !data.routes?.[0]) {
+        throw new Error('No route found');
+      }
 
-        if (data.code !== 'Ok' || !data.routes?.[0]) {
-          throw new Error('No route found');
-        }
+      const route = data.routes[0];
+      const legs = route.legs;
 
-        const route = data.routes[0];
-        const legs = route.legs;
+      // Create route segments
+      const segments: RouteSegment[] = [];
+      let totalDrivingTime = 0;
+      let totalDrivingDistance = 0;
 
-        // Create route segments
-        const segments: RouteSegment[] = [];
-        let totalDrivingTime = 0;
-        let totalDrivingDistance = 0;
+      // When we have inherited start, first leg is from inherited start to first real stop
+      const startOffset = inheritedStart ? 1 : 0;
 
-        // When we have inherited start, first leg is from inherited start to first real stop
-        // We need to handle this specially for the segment IDs
-        const startOffset = inheritedStart ? 1 : 0;
+      for (let i = 0; i < legs.length; i++) {
+        const leg = legs[i];
+        totalDrivingTime += leg.duration;
+        totalDrivingDistance += leg.distance;
 
-        for (let i = 0; i < legs.length; i++) {
-          const leg = legs[i];
-          totalDrivingTime += leg.duration;
-          totalDrivingDistance += leg.distance;
-
-          // For segments, we reference the actual day.stops
-          // If inherited start, leg 0 goes to day.stops[0], leg 1 goes from day.stops[0] to day.stops[1], etc.
-          if (inheritedStart && i === 0) {
-            // First leg is from inherited start to first real stop
-            // Create a special segment with a placeholder fromStopId
+        if (inheritedStart && i === 0) {
+          segments.push({
+            fromStopId: 'inherited-start',
+            toStopId: day.stops[0].id,
+            distance: leg.distance,
+            duration: leg.duration,
+          });
+        } else {
+          const fromIndex = i - startOffset;
+          const toIndex = i - startOffset + 1;
+          if (toIndex < day.stops.length) {
             segments.push({
-              fromStopId: 'inherited-start',
-              toStopId: day.stops[0].id,
+              fromStopId: day.stops[fromIndex].id,
+              toStopId: day.stops[toIndex].id,
               distance: leg.distance,
               duration: leg.duration,
             });
-          } else {
-            const fromIndex = i - startOffset;
-            const toIndex = i - startOffset + 1;
-            if (toIndex < day.stops.length) {
-              segments.push({
-                fromStopId: day.stops[fromIndex].id,
-                toStopId: day.stops[toIndex].id,
-                distance: leg.distance,
-                duration: leg.duration,
-              });
-            }
           }
         }
-
-        // Calculate activity time
-        const totalActivityTime = day.stops.reduce(
-          (sum, stop) => sum + (stop.duration || 0),
-          0
-        );
-
-        // Report stats (stopCount only includes real stops, not inherited start)
-        onRouteCalculated(day.id, segments, {
-          totalDrivingTime,
-          totalDrivingDistance,
-          totalActivityTime,
-          stopCount: day.stops.length,
-        });
-
-        // Draw route on map
-        const coordinates = route.geometry.coordinates.map(
-          (coord: [number, number]) => [coord[1], coord[0]] as [number, number]
-        );
-
-        const polyline = L.polyline(coordinates, {
-          color: day.color,
-          weight: isSelected ? 5 : 4,
-          opacity: isSelected ? 0.9 : 0.7,
-        }).addTo(map);
-
-        routeRef.current.push(polyline);
-
-        // Success - exit retry loop
-        fetchingRef.current = false;
-        return;
-      } catch (error) {
-        lastError = error as Error;
-        // Continue to next retry attempt
       }
-    }
 
-    // All retries failed
-    console.error('Route calculation failed after retries:', lastError);
-    fetchingRef.current = false;
+      // Calculate activity time
+      const totalActivityTime = day.stops.reduce(
+        (sum, stop) => sum + (stop.duration || 0),
+        0
+      );
+
+      // Report stats
+      onRouteCalculated(day.id, segments, {
+        totalDrivingTime,
+        totalDrivingDistance,
+        totalActivityTime,
+        stopCount: day.stops.length,
+      });
+
+      // Draw route on map
+      const coordinates = route.geometry.coordinates.map(
+        (coord: [number, number]) => [coord[1], coord[0]] as [number, number]
+      );
+
+      const polyline = L.polyline(coordinates, {
+        color: day.color,
+        weight: isSelected ? 5 : 4,
+        opacity: isSelected ? 0.9 : 0.7,
+      }).addTo(map);
+
+      routeRef.current.push(polyline);
+    });
   }, [day.id, day.stops, day.color, isSelected, map, onRouteCalculated, inheritedStart]);
 
   // Recalculate route when stops change
   useEffect(() => {
-    const timeoutId = setTimeout(calculateRoute, 500); // Debounce
-    return () => clearTimeout(timeoutId);
-  }, [calculateRoute]);
+    const timeoutId = setTimeout(() => {
+      calculateRoute().catch(err => {
+        console.error('Route calculation failed:', err);
+      });
+    }, 300);
+    return () => {
+      clearTimeout(timeoutId);
+      routeQueue.cancel(day.id);
+    };
+  }, [calculateRoute, day.id]);
 
   // Cleanup on unmount
   useEffect(() => {
     return () => {
+      routeQueue.cancel(day.id);
       routeRef.current.forEach(line => map.removeLayer(line));
     };
-  }, [map]);
+  }, [map, day.id]);
 
   return null;
 }

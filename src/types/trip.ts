@@ -71,8 +71,9 @@ export interface Trip {
   settings: TripSettings;
 }
 
-// Day colors for visualization
+// Day colors for visualization - 24 unique colors with varied lightness
 export const DAY_COLORS = [
+  // Vibrant base colors
   '#3B82F6', // Blue
   '#10B981', // Emerald
   '#F59E0B', // Amber
@@ -81,6 +82,24 @@ export const DAY_COLORS = [
   '#EC4899', // Pink
   '#06B6D4', // Cyan
   '#84CC16', // Lime
+  // Darker variants
+  '#1E40AF', // Dark Blue
+  '#047857', // Dark Emerald
+  '#B45309', // Dark Amber
+  '#B91C1C', // Dark Red
+  '#5B21B6', // Dark Violet
+  '#BE185D', // Dark Pink
+  '#0E7490', // Dark Cyan
+  '#4D7C0F', // Dark Lime
+  // Lighter variants
+  '#60A5FA', // Light Blue
+  '#34D399', // Light Emerald
+  '#FBBF24', // Light Amber
+  '#F87171', // Light Red
+  '#A78BFA', // Light Violet
+  '#F472B6', // Light Pink
+  '#22D3EE', // Light Cyan
+  '#A3E635', // Light Lime
 ];
 
 export function getDayColor(index: number): string {
