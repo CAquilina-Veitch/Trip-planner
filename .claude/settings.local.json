@@ -6,7 +6,12 @@
       "Bash(timeout:*)",
       "Bash(npm run dev:*)",
       "Bash(more:*)",
-      "Bash(npx tsc:*)"
+      "Bash(npx tsc:*)",
+      "Bash(git show:*)",
+      "Bash(gh run list:*)",
+      "Bash(git commit:*)",
+      "Bash(git push)",
+      "Bash(git add:*)"
     ]
   }
 }

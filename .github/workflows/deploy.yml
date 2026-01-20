@@ -35,8 +35,13 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Setup Pages
-        uses: actions/configure-pages@v4
+      - name: List dist contents
+        run: |
+          echo "=== dist/index.html ==="
+          cat dist/index.html
+          echo ""
+          echo "=== dist contents ==="
+          ls -la dist/
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
